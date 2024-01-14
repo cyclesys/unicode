@@ -1,0 +1,10 @@
+.{
+    .name = "ucd",
+    .version = "1.0.0",
+    .paths = .{
+        "src/",
+        "LICENSE",
+        "build.zig",
+        "build.zig.zon",
+    },
+}
