@@ -84,7 +84,7 @@ pub fn add(self: *Self, name: []const u8, range: Range) !void {
     try gop.value_ptr.append(range);
 }
 
-pub fn extend(self: *Self, other: *const Self) !void {
+pub fn extend(self: *Self, other: Self) !void {
     var iter = other.entries.iterator();
     while (iter.next()) |entry| {
         const name = entry.key_ptr.*;

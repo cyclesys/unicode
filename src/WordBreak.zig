@@ -1,6 +1,5 @@
 const std = @import("std");
 const ucd = @import("ucd.zig");
-const WordBreakProperty = @import("ucd/WordBreakProperty.zig");
 
 chars: []const u32,
 i: usize,
@@ -28,7 +27,7 @@ pub fn next(self: *Self) ?usize {
             return state.end();
         }
 
-        const prop = ucd.trieValue(WordBreakProperty, self.chars[i]);
+        const prop = ucd.WordBreakProperty.get(self.chars[i]);
         return state.next(prop) orelse continue;
     }
 }
@@ -56,7 +55,7 @@ const WordState = struct {
         Katakana,
         ExtendNumLet,
         RegionalIndicator,
-        Any,
+        None,
     };
 
     fn init(iter: *Self) WordState {
@@ -68,7 +67,7 @@ const WordState = struct {
         };
     }
 
-    fn next(self: *WordState, prop: WordBreakProperty.Value) ?usize {
+    fn next(self: *WordState, prop: ucd.WordBreakProperty) ?usize {
         if (self.rule == null) {
             self.iter.i += 1;
             self.rule = switch (prop) {
@@ -83,7 +82,7 @@ const WordState = struct {
                 .Katakana => .Katakana,
                 .ExtendNumLet => .ExtendNumLet,
                 .Regional_Indicator => .RegionalIndicator,
-                else => .Any,
+                else => .None,
             };
             if (self.rule.? == .RegionalIndicator) {
                 self.iter.ris_count += 1;
@@ -106,7 +105,7 @@ const WordState = struct {
                 switch (prop) {
                     .Extended_Pictographic => {
                         self.zwj = null;
-                        return self.advance(.Any);
+                        return self.advance(.None);
                     },
                     .ZWJ => {
                         if (self.zwj) |zwj| {
@@ -208,7 +207,7 @@ const WordState = struct {
                 },
                 else => self.advanceIfIgnore(prop),
             },
-            .Any => self.advanceIfIgnore(prop),
+            .None => self.advanceIfIgnore(prop),
         };
     }
 
@@ -230,7 +229,7 @@ const WordState = struct {
         };
     }
 
-    inline fn advanceIfIgnore(self: *WordState, prop: WordBreakProperty.Value) ?usize {
+    inline fn advanceIfIgnore(self: *WordState, prop: ucd.WordBreakProperty) ?usize {
         return switch (prop) {
             .ZWJ => {
                 self.zwj = .{
@@ -244,7 +243,7 @@ const WordState = struct {
         };
     }
 
-    inline fn advanceIfIgnoreAndSetIgnore(self: *WordState, prop: WordBreakProperty.Value) ?usize {
+    inline fn advanceIfIgnoreAndSetIgnore(self: *WordState, prop: ucd.WordBreakProperty) ?usize {
         return switch (prop) {
             .ZWJ => self.advance(.ZWJ),
             .Extend, .Format => self.advance(.Ignore),
@@ -261,7 +260,7 @@ const WordState = struct {
         return null;
     }
 
-    inline fn peekIfIgnore(self: *WordState, prop: WordBreakProperty.Value) ?usize {
+    inline fn peekIfIgnore(self: *WordState, prop: ucd.WordBreakProperty) ?usize {
         return switch (prop) {
             .ZWJ => {
                 self.zwj = .{
@@ -298,6 +297,7 @@ const WordState = struct {
     }
 };
 
+const break_test = @import("break_test.zig");
 test {
-    try ucd.testBreakIterator("WordBreakTest.txt", init);
+    try break_test.testBreakIterator("WordBreakTest.txt", init);
 }

@@ -1,14 +1,9 @@
 const std = @import("std");
 const ucd = @import("ucd.zig");
-const BidiBrackets = @import("ucd/BidiBrackets.zig");
-const BidiCategory = @import("ucd/BidiCategory.zig");
-const DerivedBidi = @import("ucd/DerivedBidi.zig");
 
-pub const BidiCat = BidiCategory.Value;
-
-pub fn charCat(c: u32) BidiCat {
-    return switch (ucd.trieValue(BidiCategory, c)) {
-        .Any => switch (ucd.trieValue(DerivedBidi, c)) {
+pub fn charCat(c: u32) ucd.BidiCategory {
+    return switch (ucd.BidiCategory.get(c)) {
+        .None => switch (ucd.DerivedBidiProperty.get(c)) {
             .L => .L,
             .R => .R,
             .EN => .EN,
@@ -32,15 +27,15 @@ pub fn charCat(c: u32) BidiCat {
             .RLI => .RLI,
             .FSI => .FSI,
             .PDI => .PDI,
-            .Any => .Any,
+            .None => .None,
             .Error => .Error,
         },
         else => |cat| cat,
     };
 }
 
-pub fn charCats(allocator: std.mem.Allocator, chars: []const u32) ![]const BidiCat {
-    const cats = try allocator.alloc(BidiCat, chars.len);
+pub fn charCats(allocator: std.mem.Allocator, chars: []const u32) ![]const ucd.BidiCategory {
+    const cats = try allocator.alloc(ucd.BidiCategory, chars.len);
     for (chars, 0..) |c, i| {
         cats[i] = charCat(c);
     }
@@ -50,10 +45,10 @@ pub fn charCats(allocator: std.mem.Allocator, chars: []const u32) ![]const BidiC
 pub const Level = u8;
 
 pub const ParagraphIterator = struct {
-    cats: []const BidiCat,
+    cats: []const ucd.BidiCategory,
     i: usize,
 
-    pub fn init(cats: []const BidiCat) ParagraphIterator {
+    pub fn init(cats: []const ucd.BidiCategory) ParagraphIterator {
         return ParagraphIterator{
             .cats = cats,
             .i = 0,
@@ -94,7 +89,7 @@ pub const ParagraphIterator = struct {
 
 pub fn reorder(
     allocator: std.mem.Allocator,
-    cats: []const BidiCat,
+    cats: []const ucd.BidiCategory,
     levels: []Level,
     paragraph_level: Level,
 ) ![]const usize {
@@ -182,13 +177,13 @@ pub fn reorder(
 pub fn resolve(
     allocator: std.mem.Allocator,
     chars: []const u32,
-    char_cats: []const BidiCat,
+    char_cats: []const ucd.BidiCategory,
     paragraph_level: Level,
 ) ![]Level {
     const levels = try allocator.alloc(Level, chars.len);
     @memset(levels, 0);
 
-    const cats = try allocator.alloc(BidiCat, chars.len);
+    const cats = try allocator.alloc(ucd.BidiCategory, chars.len);
     defer allocator.free(cats);
 
     resolveExplicitTypes(char_cats, levels, cats, paragraph_level);
@@ -204,14 +199,14 @@ pub fn resolve(
 }
 
 fn resolveExplicitTypes(
-    char_cats: []const BidiCat,
+    char_cats: []const ucd.BidiCategory,
     levels: []Level,
-    cats: []BidiCat,
+    cats: []ucd.BidiCategory,
     paragraph_level: Level,
 ) void {
     var state: struct {
         levels: []Level,
-        cats: []BidiCat,
+        cats: []ucd.BidiCategory,
         stack: [stack_size]DirectionalStatus = undefined,
         stack_len: usize = 0,
         overflow_isolate: usize = 0,
@@ -223,11 +218,11 @@ fn resolveExplicitTypes(
 
         const DirectionalStatus = struct {
             level: Level,
-            override: ?BidiCat,
+            override: ?ucd.BidiCategory,
             isolate: bool,
         };
 
-        fn pushEmbedding(self: *@This(), level: Level, override: ?BidiCat, i: usize) void {
+        fn pushEmbedding(self: *@This(), level: Level, override: ?ucd.BidiCategory, i: usize) void {
             if (level <= max_depth and self.overflow_isolate == 0 and self.overflow_embedding == 0) {
                 self.push(.{
                     .level = level,
@@ -263,7 +258,7 @@ fn resolveExplicitTypes(
             }
         }
 
-        fn set(self: *@This(), i: usize, cat: BidiCat) void {
+        fn set(self: *@This(), i: usize, cat: ucd.BidiCategory) void {
             const last = self.lastEntry();
             self.levels[i] = last.level;
             self.cats[i] = last.override orelse cat;
@@ -401,7 +396,7 @@ fn resolveExplicitTypes(
 fn resolveSequences(
     allocator: std.mem.Allocator,
     levels: []const Level,
-    cats: []const BidiCat,
+    cats: []const ucd.BidiCategory,
     paragraph_level: Level,
 ) ![]const Sequence {
     const SequenceLevelRuns = std.ArrayList(LevelRun);
@@ -464,7 +459,7 @@ fn resolveSequences(
 
             break :blk @max(sos_level, levels[seq_start]);
         };
-        const sos: BidiCat = if (sos_level % 2 == 0) .L else .R;
+        const sos: ucd.BidiCategory = if (sos_level % 2 == 0) .L else .R;
 
         const eos_level = blk: {
             var eos_level: Level = paragraph_level;
@@ -488,7 +483,7 @@ fn resolveSequences(
 
             break :blk @max(eos_level, levels[seq_end - 1]);
         };
-        const eos: BidiCat = if (eos_level % 2 == 0) .L else .R;
+        const eos: ucd.BidiCategory = if (eos_level % 2 == 0) .L else .R;
 
         var runs = try std.ArrayList(LevelRun).initCapacity(allocator, seq_runs.items.len);
         for (seq_runs.items) |run| {
@@ -513,19 +508,19 @@ fn freeSequences(allocator: std.mem.Allocator, sequences: []const Sequence) void
     allocator.free(sequences);
 }
 
-fn resolveWeakTypes(char_cats: []const BidiCat, cats: []BidiCat, sequences: []const Sequence) void {
+fn resolveWeakTypes(char_cats: []const ucd.BidiCategory, cats: []ucd.BidiCategory, sequences: []const Sequence) void {
     var state: struct {
-        char_cats: []const BidiCat,
-        cats: []BidiCat,
+        char_cats: []const ucd.BidiCategory,
+        cats: []ucd.BidiCategory,
         seq: Sequence,
-        strong_type: BidiCat,
+        strong_type: ucd.BidiCategory,
         et_seq_start: ?Sequence.Pos = null,
 
-        fn next(self: *@This(), cat: BidiCat, pos: Sequence.Pos) void {
+        fn next(self: *@This(), cat: ucd.BidiCategory, pos: Sequence.Pos) void {
             var reset_et_seq_start = true;
             switch (cat) {
                 .NSM => {
-                    var p_cat: ?BidiCat = null;
+                    var p_cat: ?ucd.BidiCategory = null;
                     var p_pos = pos;
                     while (p_pos.prev(self.seq, self.cats)) |p| {
                         const c = self.char_cats[p.ii];
@@ -668,21 +663,21 @@ fn resolveWeakTypes(char_cats: []const BidiCat, cats: []BidiCat, sequences: []co
 fn resolveNeutralTypes(
     allocator: std.mem.Allocator,
     chars: []const u32,
-    char_cats: []const BidiCat,
-    cats: []BidiCat,
+    char_cats: []const ucd.BidiCategory,
+    cats: []ucd.BidiCategory,
     sequences: []const Sequence,
 ) !void {
     for (sequences) |seq| {
-        const e: BidiCat = if (seq.level % 2 == 0) .L else .R;
+        const e: ucd.BidiCategory = if (seq.level % 2 == 0) .L else .R;
 
         const pairs = try resolveBracketPairs(allocator, chars, cats, seq);
         defer allocator.free(pairs);
 
         outer: for (pairs) |pair| {
-            var strong_type: ?BidiCat = null;
-            for (pair.opening.ri..(pair.closing.ri + 1)) |ri| {
-                const start = if (ri == pair.opening.ri) pair.opening.ii else seq.runs[ri].start;
-                const end = if (ri == pair.closing.ri) pair.closing.ii else seq.runs[ri].end;
+            var strong_type: ?ucd.BidiCategory = null;
+            for (pair.open.ri..(pair.close.ri + 1)) |ri| {
+                const start = if (ri == pair.open.ri) pair.open.ii else seq.runs[ri].start;
+                const end = if (ri == pair.close.ri) pair.close.ii else seq.runs[ri].end;
                 for (start..end) |ii| {
                     var cat = cats[ii];
                     if (ignoreCat(cat)) {
@@ -694,10 +689,10 @@ fn resolveNeutralTypes(
                     }
 
                     if (cat == e) {
-                        cats[pair.opening.ii] = e;
-                        cats[pair.closing.ii] = e;
-                        checkNSMAfterPairedBracket(seq, pair.opening, char_cats, cats, e);
-                        checkNSMAfterPairedBracket(seq, pair.closing, char_cats, cats, e);
+                        cats[pair.open.ii] = e;
+                        cats[pair.close.ii] = e;
+                        checkNSMAfterPairedBracket(seq, pair.open, char_cats, cats, e);
+                        checkNSMAfterPairedBracket(seq, pair.close, char_cats, cats, e);
                         continue :outer;
                     }
 
@@ -711,8 +706,8 @@ fn resolveNeutralTypes(
                 continue;
             }
 
-            var ri = pair.opening.ri + 1;
-            var ii = pair.opening.ii;
+            var ri = pair.open.ri + 1;
+            var ii = pair.open.ii;
             const context = ctx: while (ri > 0) : (ri -= 1) {
                 while (ii > seq.runs[ri - 1].start) : (ii -= 1) {
                     switch (cats[ii - 1]) {
@@ -728,14 +723,14 @@ fn resolveNeutralTypes(
             } else seq.sos;
 
             const new_cat = if (context == strong_type.?) context else e;
-            cats[pair.opening.ii] = new_cat;
-            cats[pair.closing.ii] = new_cat;
-            checkNSMAfterPairedBracket(seq, pair.opening, char_cats, cats, new_cat);
-            checkNSMAfterPairedBracket(seq, pair.closing, char_cats, cats, new_cat);
+            cats[pair.open.ii] = new_cat;
+            cats[pair.close.ii] = new_cat;
+            checkNSMAfterPairedBracket(seq, pair.open, char_cats, cats, new_cat);
+            checkNSMAfterPairedBracket(seq, pair.close, char_cats, cats, new_cat);
         }
 
         var prev_char: ?usize = null;
-        var ni_seq_ctx: ?BidiCat = null;
+        var ni_seq_ctx: ?ucd.BidiCategory = null;
         var ni_seq_start: ?Sequence.Pos = null;
         for (seq.runs, 0..) |run, ri| {
             for (run.start..run.end) |ii| {
@@ -806,9 +801,9 @@ fn resolveNeutralTypes(
 fn checkNSMAfterPairedBracket(
     seq: Sequence,
     pos: Sequence.Pos,
-    char_cats: []const BidiCat,
-    cats: []BidiCat,
-    cat: BidiCat,
+    char_cats: []const ucd.BidiCategory,
+    cats: []ucd.BidiCategory,
+    cat: ucd.BidiCategory,
 ) void {
     var ri = pos.ri;
     var ii = pos.ii + 1;
@@ -833,8 +828,8 @@ fn setAllInSequence(
     seq: Sequence,
     start: Sequence.Pos,
     end: Sequence.Pos,
-    cats: []BidiCat,
-    cat: BidiCat,
+    cats: []ucd.BidiCategory,
+    cat: ucd.BidiCategory,
 ) void {
     for (start.ri..(end.ri + 1)) |ri| {
         const start_idx = if (ri == start.ri) start.ii else seq.runs[ri].start;
@@ -851,7 +846,7 @@ fn setAllInSequence(
 fn resolveBracketPairs(
     allocator: std.mem.Allocator,
     chars: []const u32,
-    cats: []const BidiCat,
+    cats: []const ucd.BidiCategory,
     seq: Sequence,
 ) ![]const BracketPair {
     var state: struct {
@@ -861,21 +856,21 @@ fn resolveBracketPairs(
 
         const stack_size = 63;
         const StackEntry = struct {
-            bracket: BidiBrackets.Bracket,
+            bracket: ucd.BidiBracket,
             pos: Sequence.Pos,
         };
 
-        fn append(self: *@This(), opening: Sequence.Pos, ri: usize, ii: usize) !void {
+        fn append(self: *@This(), open: Sequence.Pos, ri: usize, ii: usize) !void {
             try self.pairs.append(BracketPair{
-                .opening = opening,
-                .closing = Sequence.Pos{
+                .open = open,
+                .close = Sequence.Pos{
                     .ri = ri,
                     .ii = ii,
                 },
             });
         }
 
-        fn push(self: *@This(), bracket: BidiBrackets.Bracket, ri: usize, ii: usize) bool {
+        fn push(self: *@This(), bracket: ucd.BidiBracket, ri: usize, ii: usize) bool {
             if (self.stack_len >= stack_size) {
                 return false;
             }
@@ -907,14 +902,14 @@ fn resolveBracketPairs(
                 continue;
             }
 
-            if (BidiBrackets.get(chars[ii])) |bracket| {
-                switch (bracket.type) {
-                    .opening => {
+            if (ucd.BidiBracket.get(chars[ii])) |bracket| {
+                switch (bracket.dir) {
+                    .open => {
                         if (!state.push(bracket, ri, ii)) {
                             break :outer;
                         }
                     },
-                    .closing => {
+                    .close => {
                         var i = state.stack_len;
                         while (i > 0) : (i -= 1) {
                             const entry = state.stack[i - 1];
@@ -922,7 +917,7 @@ fn resolveBracketPairs(
                             var matches = entry.bracket.pair == chars[ii];
                             if (!matches) {
                                 if (entry.bracket.mapping) |mapping| {
-                                    if (BidiBrackets.get(mapping)) |mb| {
+                                    if (ucd.BidiBracket.get(mapping)) |mb| {
                                         matches = mb.pair == chars[ii];
                                     }
                                 }
@@ -947,7 +942,7 @@ fn resolveBracketPairs(
         @as(void, undefined),
         struct {
             fn lessThan(_: void, lhs: BracketPair, rhs: BracketPair) bool {
-                return lhs.opening.ii < rhs.opening.ii;
+                return lhs.open.ii < rhs.open.ii;
             }
         }.lessThan,
     );
@@ -955,11 +950,11 @@ fn resolveBracketPairs(
 }
 
 const BracketPair = struct {
-    opening: Sequence.Pos,
-    closing: Sequence.Pos,
+    open: Sequence.Pos,
+    close: Sequence.Pos,
 };
 
-fn resolveImplicitLevels(levels: []Level, cats: []const BidiCat, sequences: []const Sequence) void {
+fn resolveImplicitLevels(levels: []Level, cats: []const ucd.BidiCategory, sequences: []const Sequence) void {
     for (sequences) |seq| {
         for (seq.runs) |run| {
             for (run.start..run.end) |ii| {
@@ -989,14 +984,14 @@ fn resolveImplicitLevels(levels: []Level, cats: []const BidiCat, sequences: []co
 const Sequence = struct {
     level: Level,
     runs: []const LevelRun,
-    sos: BidiCat,
-    eos: BidiCat,
+    sos: ucd.BidiCategory,
+    eos: ucd.BidiCategory,
 
     const Pos = struct {
         ri: usize,
         ii: usize,
 
-        fn prev(self: Pos, seq: Sequence, cats: []const BidiCat) ?Pos {
+        fn prev(self: Pos, seq: Sequence, cats: []const ucd.BidiCategory) ?Pos {
             var pos = self;
             while (pos.nextPrev(seq)) |p| {
                 if (ignoreCat(cats[p.ii])) {
@@ -1032,7 +1027,7 @@ const Sequence = struct {
 
 const LevelRunIterator = struct {
     levels: []const Level,
-    cats: []const BidiCat,
+    cats: []const ucd.BidiCategory,
     i: usize = 0,
 
     fn next(self: *LevelRunIterator) ?LevelRun {
@@ -1083,7 +1078,7 @@ const LevelRun = struct {
     end: usize,
 };
 
-inline fn ignoreCat(cat: BidiCat) bool {
+inline fn ignoreCat(cat: ucd.BidiCategory) bool {
     return switch (cat) {
         .RLE, .LRE, .RLO, .LRO, .PDF, .BN => true,
         else => false,
@@ -1091,7 +1086,7 @@ inline fn ignoreCat(cat: BidiCat) bool {
 }
 
 test "BidiTest" {
-    const test_data = @embedFile("ucd/BidiTest.txt");
+    const test_data = @embedFile("ucd_test/BidiTest.txt");
     const allocator = std.testing.allocator;
 
     var debug = DebugPrint{};
@@ -1254,7 +1249,7 @@ fn catStrToChar(cat: []const u8) u32 {
         @panic("invalid cat str");
 }
 
-fn findParagraphLevel(cats: []const BidiCat) Level {
+fn findParagraphLevel(cats: []const ucd.BidiCategory) Level {
     var isolate_count: usize = 0;
     for (cats) |cat| {
         switch (cat) {
@@ -1281,7 +1276,7 @@ fn findParagraphLevel(cats: []const BidiCat) Level {
 }
 
 test "BidiCharacterTest" {
-    const test_data = @embedFile("ucd/BidiCharacterTest.txt");
+    const test_data = @embedFile("ucd_test/BidiCharacterTest.txt");
     const allocator = std.testing.allocator;
 
     var debug = DebugPrint{};
@@ -1361,7 +1356,7 @@ test "BidiCharacterTest" {
 fn expectLevelsAndReorder(
     paragraph_level: Level,
     chars: []const u32,
-    cats: []const BidiCat,
+    cats: []const ucd.BidiCategory,
     expected_levels: []const ?Level,
     expected_order: []const usize,
 ) !void {
@@ -1404,7 +1399,7 @@ fn expectLevelsAndReorder(
 const DebugPrint = struct {
     levels: []const ?Level = undefined,
     order: []const usize = undefined,
-    cats: []const BidiCat = undefined,
+    cats: []const ucd.BidiCategory = undefined,
     line: usize = 1,
 
     fn print(self: @This()) void {
@@ -1436,7 +1431,7 @@ fn debugPrintCats(context: []const u8, items: anytype) void {
         if (i > 0) {
             std.debug.print(", ", .{});
         }
-        const cat = if (@TypeOf(item) == BidiCat) item else item.bidi;
+        const cat = if (@TypeOf(item) == ucd.BidiCategory) item else item.bidi;
         std.debug.print("{}({s})", .{ i, @tagName(cat) });
     }
     std.debug.print("}}, \n", .{});

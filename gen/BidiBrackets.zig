@@ -7,7 +7,7 @@ pub const Entries = std.ArrayList(Entry);
 pub const Entry = struct {
     left: u32,
     right: u32,
-    kind: enum { opening, closing },
+    dir: enum { open, close },
 };
 const Self = @This();
 
@@ -27,9 +27,9 @@ pub fn parse(allocator: std.mem.Allocator, bytes: []const u8) !Self {
         try entries.append(Entry{
             .left = left,
             .right = right,
-            .kind = switch (kind[0]) {
-                'o' => .opening,
-                'c' => .closing,
+            .dir = switch (kind[0]) {
+                'o' => .open,
+                'c' => .close,
                 else => @panic("unexpected bidi bracket pair kind"),
             },
         });

@@ -13,6 +13,20 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
+    std.fs.cwd().makeDir("src/ucd_test") catch |e| {
+        if (e != error.PathAlreadyExists) {
+            return e;
+        }
+    };
+    try copyFile(allocator, "BidiTest.txt", "ucd_test/BidiTest.txt");
+    try copyFile(allocator, "BidiCharacterTest.txt", "ucd_test/BidiCharacterTest.txt");
+    try copyFile(allocator, "auxiliary/GraphemeBreakTest.txt", "ucd_test/GraphemeBreakTest.txt");
+    try copyFile(allocator, "auxiliary/WordBreakTest.txt", "ucd_test/WordBreakTest.txt");
+    try copyFile(allocator, "auxiliary/LineBreakTest.txt", "ucd_test/LineBreakTest.txt");
+
+    var buf = std.ArrayList(u8).init(allocator);
+    defer buf.deinit();
+
     {
         var bytes = try downloadFile(allocator, "UnicodeData.txt");
         defer allocator.free(bytes);
@@ -20,9 +34,9 @@ pub fn main() !void {
         var data = try UnicodeData.parse(allocator, bytes);
         defer data.deinit();
 
-        try genCategoryTrie(allocator, data, "gen_cat", "GeneralCategory.zig");
-        try genCategoryTrie(allocator, data, "bidi_cat", "BidiCategory.zig");
-        try genBidiBrackets(allocator, data);
+        try writeCategoryTrie(allocator, &buf, data, "gen_cat", "GeneralCategory");
+        try writeCategoryTrie(allocator, &buf, data, "bidi_cat", "BidiCategory");
+        try writeBidiBrackets(allocator, &buf, data);
     }
 
     {
@@ -126,18 +140,15 @@ pub fn main() !void {
             .end = 0x1EFFF,
         });
 
-        try genPropertyTrie(allocator, "extracted/DerivedBidiClass.txt", "DerivedBidi.zig", &derived_bidi_extra);
+        try writePropertyTrie(allocator, &buf, "extracted/DerivedBidiClass.txt", "DerivedBidiProperty", derived_bidi_extra);
     }
-
-    try copyFile(allocator, "BidiTest.txt", null);
-    try copyFile(allocator, "BidiCharacterTest.txt", null);
 
     {
         var emoji_property = try loadProperty(allocator, "emoji/emoji-data.txt", &.{"Extended_Pictographic"});
         defer emoji_property.deinit();
 
-        try genPropertyTrie(allocator, "auxiliary/GraphemeBreakProperty.txt", "GraphemeBreakProperty.zig", &emoji_property);
-        try genPropertyTrie(allocator, "auxiliary/WordBreakProperty.txt", "WordBreakProperty.zig", &emoji_property);
+        try writePropertyTrie(allocator, &buf, "auxiliary/GraphemeBreakProperty.txt", "GraphemeBreakProperty", emoji_property);
+        try writePropertyTrie(allocator, &buf, "auxiliary/WordBreakProperty.txt", "WordBreakProperty", emoji_property);
     }
 
     {
@@ -177,22 +188,68 @@ pub fn main() !void {
             .end = 0x20CF,
         });
 
-        try genPropertyTrie(allocator, "LineBreak.txt", "LineBreakProperty.zig", &line_break_property_extra);
+        try writePropertyTrie(allocator, &buf, "LineBreak.txt", "LineBreakProperty", line_break_property_extra);
     }
 
-    try genPropertyTrie(allocator, "EastAsianWidth.txt", "EastAsianWidth.zig", null);
-    try genPropertyTrie(allocator, "Scripts.txt", "Script.zig", null);
+    try writePropertyTrie(allocator, &buf, "EastAsianWidth.txt", "EastAsianWidthProperty", null);
+    try writePropertyTrie(allocator, &buf, "Scripts.txt", "ScriptProperty", null);
 
-    try copyFile(allocator, "auxiliary/GraphemeBreakTest.txt", "GraphemeBreakTest.txt");
-    try copyFile(allocator, "auxiliary/WordBreakTest.txt", "WordBreakTest.txt");
-    try copyFile(allocator, "auxiliary/LineBreakTest.txt", "LineBreakTest.txt");
+    try buf.appendSlice(
+        \\fn trieGet(comptime Trie: type, c: u32) Trie {
+        \\    const FAST_SHIFT = 6;
+        \\    const FAST_DATA_BLOCK_LEN = 1 << FAST_SHIFT;
+        \\    const FAST_DATA_MASK = FAST_DATA_BLOCK_LEN - 1;
+        \\    const SHIFT_3 = 4;
+        \\    const SHIFT_2 = 5 + SHIFT_3;
+        \\    const SHIFT_1 = 5 + SHIFT_2;
+        \\    const SHIFT_1_2 = SHIFT_1 - SHIFT_2;
+        \\    const SHIFT_2_3 = SHIFT_2 - SHIFT_3;
+        \\    const SMALL_DATA_BLOCK_LEN = 1 << SHIFT_3;
+        \\    const SMALL_DATA_MASK = SMALL_DATA_BLOCK_LEN - 1;
+        \\    const INDEX_2_BLOCK_LEN = 1 << SHIFT_1_2;
+        \\    const INDEX_2_MASK = INDEX_2_BLOCK_LEN - 1;
+        \\    const INDEX_3_BLOCK_LEN = 1 << SHIFT_2_3;
+        \\    const INDEX_3_MASK = INDEX_3_BLOCK_LEN - 1;
+        \\    const BMP_INDEX_LEN = 0x10000 >> FAST_SHIFT;
+        \\    const OMITTED_BMP_INDEX_1_LEN = 0x10000 >> SHIFT_1;
+        \\    const ERROR_VALUE_NEG_DATA_OFFSET = 1;
+        \\    const HIGH_VALUE_NEG_DATA_OFFSET = 2;
+        \\
+        \\    if (c <= 0xFFFF) {
+        \\        return @enumFromInt(Trie.data[Trie.index[c >> FAST_SHIFT] + (c & FAST_DATA_MASK)]);
+        \\    }
+        \\    if (c > 0x10FFFF) {
+        \\        return @enumFromInt(Trie.data[Trie.data.len - ERROR_VALUE_NEG_DATA_OFFSET]);
+        \\    }
+        \\    if (c >= Trie.high_start) {
+        \\        return @enumFromInt(Trie.data[Trie.data.len - HIGH_VALUE_NEG_DATA_OFFSET]);
+        \\    }
+        \\
+        \\    const idx1: u32 = (c >> SHIFT_1) + (BMP_INDEX_LEN - OMITTED_BMP_INDEX_1_LEN);
+        \\    var idx3_block: u32 = Trie.index[Trie.index[idx1] + ((c >> SHIFT_2) & INDEX_2_MASK)];
+        \\    var idx3: u32 = (c >> SHIFT_3) & INDEX_3_MASK;
+        \\    var data_block: u32 = undefined;
+        \\    if ((idx3_block & 0x8000) == 0) {
+        \\        data_block = Trie.index[idx3_block + idx3];
+        \\    } else {
+        \\        idx3_block = (idx3_block & 0x7FFF) + (idx3 & ~@as(u32, 7)) + (idx3 >> 3);
+        \\        idx3 &= 7;
+        \\        data_block = @as(u32, @intCast(Trie.index[idx3_block] << @intCast((2 + (2 * idx3))))) & 0x30000;
+        \\        data_block |= Trie.index[idx3_block + idx3];
+        \\    }
+        \\    return @enumFromInt(Trie.data[data_block + (c & SMALL_DATA_MASK)]);
+        \\}
+    );
+
+    try outputFile("ucd.zig", buf.items);
 }
 
-fn genCategoryTrie(
+fn writeCategoryTrie(
     allocator: std.mem.Allocator,
+    buf: *std.ArrayList(u8),
     data: UnicodeData,
     comptime category: []const u8,
-    comptime file_name: []const u8,
+    comptime trie_name: []const u8,
 ) !void {
     const cats = &@field(data, category);
     const trie = blk: {
@@ -212,78 +269,63 @@ fn genCategoryTrie(
     };
     defer trie.deinit();
 
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
-
-    try writeTrie(&buf, &trie, cats.keys());
-    try outputFile(file_name, buf.items);
+    try writeTrie(buf, trie_name, trie, cats.keys());
 }
 
-fn genBidiBrackets(allocator: std.mem.Allocator, data: UnicodeData) !void {
+fn writeBidiBrackets(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), data: UnicodeData) !void {
     const bytes = try downloadFile(allocator, "BidiBrackets.txt");
     defer allocator.free(bytes);
 
     const brackets = try BidiBrackets.parse(allocator, bytes);
     defer brackets.deinit();
 
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
-
     try buf.appendSlice(
-        \\pub const Bracket = struct {
+        \\pub const BidiBracket = struct {
         \\    pair: u32,
-        \\    type: BracketType,
+        \\    dir: Dir,
         \\    mapping: ?u32,
-        \\};
-        \\pub const BracketType = enum {
-        \\    opening,
-        \\    closing,
-        \\};
         \\
-    );
-
-    try buf.appendSlice(
-        \\pub fn get(c: u32) ?Bracket {
-        \\    return switch (c) {
-        \\
-    );
-    for (brackets.entries.items) |entry| {
-        try buf.appendSlice("        '");
-        try writeUnicodeCodePoint(&buf, entry.left);
-        try buf.appendSlice("' => Bracket{\n");
-        try buf.appendSlice("            .pair = '");
-        try writeUnicodeCodePoint(&buf, entry.right);
-        try buf.appendSlice("',\n");
-        try buf.appendSlice("            .type = ");
-        switch (entry.kind) {
-            .opening => try buf.appendSlice(".opening,\n"),
-            .closing => try buf.appendSlice(".closing,\n"),
-        }
-        try buf.appendSlice("            .mapping = ");
-        if (data.mappings.get(entry.left)) |mapping| {
-            try buf.append('\'');
-            try writeUnicodeCodePoint(&buf, mapping);
-            try buf.append('\'');
-        } else {
-            try buf.appendSlice("null");
-        }
-        try buf.appendSlice(",\n");
-        try buf.appendSlice("        },\n");
-    }
-    try buf.appendSlice(
-        \\        else => null,
+        \\    pub const Dir = enum {
+        \\        open,
+        \\        close,
         \\    };
-        \\}
+        \\
+        \\    pub fn get(c: u32) ?BidiBracket {
+        \\        return switch (c) {
+        \\
     );
 
-    try outputFile("BidiBrackets.zig", buf.items);
+    for (brackets.entries.items) |entry| {
+        try std.fmt.format(buf.writer(),
+            \\            0x{X} => BidiBracket{{
+            \\                .pair = 0x{X},
+            \\                .dir = .{s},
+            \\                .mapping = 
+        , .{ entry.left, entry.right, @tagName(entry.dir) });
+
+        if (data.mappings.get(entry.left)) |mapping| {
+            try std.fmt.format(buf.writer(), "0x{X},\n", .{mapping});
+        } else {
+            try buf.appendSlice("null,\n");
+        }
+        try buf.appendSlice("            },\n");
+    }
+
+    try buf.appendSlice(
+        \\            else => null,
+        \\        };
+        \\    }
+        \\};
+        \\
+    );
 }
 
-fn genPropertyTrie(
+fn writePropertyTrie(
     allocator: std.mem.Allocator,
+    buf: *std.ArrayList(u8),
     comptime ucd_path: []const u8,
-    comptime file_name: []const u8,
-    extend: ?*const Property,
+    comptime trie_name: []const u8,
+    extend: ?Property,
 ) !void {
     var property = Property.init(allocator);
     defer property.deinit();
@@ -318,11 +360,75 @@ fn genPropertyTrie(
     };
     defer trie.deinit();
 
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
+    try writeTrie(buf, trie_name, trie, property.entries.keys());
+}
 
-    try writeTrie(&buf, &trie, property.entries.keys());
-    try outputFile(file_name, buf.items);
+fn writeTrie(buf: *std.ArrayList(u8), name: []const u8, trie: TrieBuilder.Trie, values: []const []const u8) !void {
+    try std.fmt.format(buf.writer(), "pub const {s} = enum {{\n", .{name});
+
+    for (values) |v| {
+        try std.fmt.format(buf.writer(), "    {s},\n", .{v});
+    }
+    try std.fmt.format(buf.writer(),
+        \\    None,
+        \\    Error,
+        \\
+        \\    const high_start = 0x{X};
+        \\
+        \\    const index = [_]u16{{
+        \\
+    , .{trie.high_start});
+
+    try writeArrayElems(buf, 2, "0x{X}", trie.index);
+
+    try buf.appendSlice(
+        \\
+        \\    };
+        \\
+        \\    const data = [_]u8{
+        \\
+    );
+
+    try writeArrayElems(buf, 2, "{d}", trie.data);
+
+    try std.fmt.format(buf.writer(),
+        \\
+        \\    }};
+        \\
+        \\    pub inline fn get(c: u32) {s} {{
+        \\        return trieGet({s}, c);
+        \\    }}
+        \\}};
+        \\
+    , .{ name, name });
+}
+
+fn writeArrayElems(buf: *std.ArrayList(u8), indent: usize, comptime fmt: []const u8, elems: anytype) !void {
+    var width: usize = 0;
+    for (elems) |e| {
+        const size = std.fmt.count(fmt, .{e});
+        if (width == 0) {
+            try writeIndent(buf, indent);
+            width = 4 * indent;
+        } else if (width + size + 2 > 120) {
+            try buf.append('\n');
+            try writeIndent(buf, indent);
+            width = 4 * indent;
+        } else {
+            try buf.append(' ');
+            width += 1;
+        }
+
+        try std.fmt.format(buf.writer(), fmt, .{e});
+        try buf.append(',');
+        width += size + 1;
+    }
+}
+
+fn writeIndent(buf: *std.ArrayList(u8), indent: usize) !void {
+    for (0..indent) |_| {
+        try buf.appendSlice("    ");
+    }
 }
 
 fn loadProperty(allocator: std.mem.Allocator, comptime ucd_path: []const u8, filters: []const []const u8) !Property {
@@ -335,78 +441,11 @@ fn loadProperty(allocator: std.mem.Allocator, comptime ucd_path: []const u8, fil
     return property;
 }
 
-fn writeTrie(buf: *std.ArrayList(u8), trie: *const TrieBuilder.Trie, values: []const []const u8) !void {
-    var formatter = ArrayDataFormatter{ .buf = buf };
-
-    try buf.appendSlice("pub const Value = enum {\n");
-    for (values) |value| {
-        try std.fmt.format(buf.writer(), "    {s},\n", .{value});
-    }
-    try buf.appendSlice("    Any,\n");
-    try buf.appendSlice("    Error,\n");
-    try buf.appendSlice("};\n");
-
-    try buf.appendSlice("pub const index = [_]u16 {");
-    for (trie.index) |val| {
-        try formatter.next("0x{X}", val);
-    }
-    try buf.appendSlice("\n};\n");
-
-    formatter.width = 0;
-    try buf.appendSlice("pub const data = [_]Value{");
-    for (trie.data) |val| {
-        const value = if (val < values.len)
-            values[val]
-        else if (val == values.len)
-            "Any"
-        else
-            "Error";
-        try formatter.next(".{s}", value);
-    }
-    try buf.appendSlice("\n};\n");
-
-    try std.fmt.format(buf.writer(), "pub const high_start = 0x{X};", .{trie.high_start});
-}
-
-const ArrayDataFormatter = struct {
-    width: usize = 0,
-    buf: *std.ArrayList(u8),
-
-    fn next(self: *ArrayDataFormatter, comptime fmt: []const u8, value: anytype) !void {
-        const count = std.fmt.count(fmt, .{value});
-        if (self.width == 0 or self.width + count + 2 > 120) {
-            try self.buf.appendSlice("\n   ");
-            self.width = 3;
-        }
-
-        try self.buf.append(' ');
-        self.width += 1;
-
-        try std.fmt.format(self.buf.writer(), fmt, .{value});
-        self.width += count;
-
-        try self.buf.append(',');
-        self.width += 1;
-    }
-};
-
-fn writeUnicodeCodePoint(buf: *std.ArrayList(u8), code_point: u32) !void {
-    try buf.appendSlice("\\u{");
-    const count = std.fmt.count("{X}", .{code_point});
-    if (count < 4) {
-        for (0..4 - count) |_| {
-            try buf.append('0');
-        }
-    }
-    try std.fmt.format(buf.writer(), "{X}", .{code_point});
-    try buf.append('}');
-}
-
-fn copyFile(allocator: std.mem.Allocator, comptime ucd_path: []const u8, comptime file_name: ?[]const u8) !void {
+fn copyFile(allocator: std.mem.Allocator, comptime ucd_path: []const u8, comptime sub_path: []const u8) !void {
     const file_bytes = try downloadFile(allocator, ucd_path);
     defer allocator.free(file_bytes);
 
-    try outputFile(file_name orelse ucd_path, file_bytes);
+    try outputFile(sub_path, file_bytes);
 }
 
 fn downloadFile(allocator: std.mem.Allocator, comptime ucd_path: []const u8) ![]const u8 {
@@ -432,10 +471,10 @@ fn downloadFile(allocator: std.mem.Allocator, comptime ucd_path: []const u8) ![]
     return result.stdout;
 }
 
-fn outputFile(comptime file_name: []const u8, bytes: []const u8) !void {
+fn outputFile(comptime sub_path: []const u8, bytes: []const u8) !void {
     const cwd = std.fs.cwd();
 
-    const file = try cwd.createFile("src/ucd/" ++ file_name, .{ .truncate = true });
+    const file = try cwd.createFile("src/" ++ sub_path, .{ .truncate = true });
     defer file.close();
 
     try file.writeAll(bytes);

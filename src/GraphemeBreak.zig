@@ -1,7 +1,6 @@
 const std = @import("std");
 const ucd = @import("ucd.zig");
 const ReverseUtf8Iterator = @import("ReverseUtf8Iterator.zig");
-const GraphemeBreakProperty = @import("ucd/GraphemeBreakProperty.zig");
 
 chars: []const u32,
 i: usize,
@@ -23,14 +22,14 @@ pub fn next(self: *Self) ?usize {
     }
 
     const start = self.i;
-    var before = ucd.trieValue(GraphemeBreakProperty, self.chars[start]);
+    var before = ucd.GraphemeBreakProperty.get(self.chars[start]);
     var prev_i = self.i;
     while (true) {
         self.i += 1;
 
-        var after: GraphemeBreakProperty.Value = undefined;
+        var after: ucd.GraphemeBreakProperty = undefined;
         if (self.i < self.chars.len) {
-            after = ucd.trieValue(GraphemeBreakProperty, self.chars[self.i]);
+            after = ucd.GraphemeBreakProperty.get(self.chars[self.i]);
         } else {
             return prev_i;
         }
@@ -76,7 +75,7 @@ pub fn next(self: *Self) ?usize {
                 if (after == .Extended_Pictographic) {
                     var i: usize = prev_i;
                     while (i > 0) : (i -= 1) {
-                        const prev = ucd.trieValue(GraphemeBreakProperty, self.chars[i - 1]);
+                        const prev = ucd.GraphemeBreakProperty.get(self.chars[i - 1]);
                         switch (prev) {
                             .Extend => {},
                             .Extended_Pictographic => {
@@ -106,13 +105,14 @@ pub fn next(self: *Self) ?usize {
     }
 }
 
-inline fn defaultAfter(after: GraphemeBreakProperty.Value) bool {
+inline fn defaultAfter(after: ucd.GraphemeBreakProperty) bool {
     return switch (after) {
         .Extend, .ZWJ, .SpacingMark => false,
         else => true,
     };
 }
 
+const break_test = @import("break_test.zig");
 test "GraphemeBreakTest" {
-    try ucd.testBreakIterator("GraphemeBreakTest.txt", init);
+    try break_test.testBreakIterator("GraphemeBreakTest.txt", init);
 }

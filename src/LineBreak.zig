@@ -1,9 +1,6 @@
 const std = @import("std");
 const ucd = @import("ucd.zig");
 const ReverseUtf8Iterator = @import("ReverseUtf8Iterator.zig");
-const EastAsianWidth = @import("ucd/EastAsianWidth.zig");
-const GeneralCategory = @import("ucd/GeneralCategory.zig");
-const LineBreakProperty = @import("ucd/LineBreakProperty.zig");
 
 chars: []const u32,
 i: usize,
@@ -11,7 +8,7 @@ ris_count: usize,
 context: Context,
 cm_base: ?struct {
     char: u32,
-    prop: LineBreakProperty.Value,
+    prop: ucd.LineBreakProperty,
 },
 
 const Context = enum {
@@ -82,9 +79,9 @@ pub fn next(self: *Self) ?Break {
 
 fn checkPair(
     self: *Self,
-    before: LineBreakProperty.Value,
+    before: ucd.LineBreakProperty,
     before_char: u32,
-    after: LineBreakProperty.Value,
+    after: ucd.LineBreakProperty,
     after_char: u32,
 ) ?bool {
     return switch (before) {
@@ -137,7 +134,7 @@ fn checkPair(
             .SP => self.setContext(.clcp_sp),
             .NS => null,
             .PR, .PO => if (self.numericBefore()) null else false,
-            .AL, .HL, .NU => switch (ucd.trieValue(EastAsianWidth, before_char)) {
+            .AL, .HL, .NU => switch (ucd.EastAsianWidthProperty.get(before_char)) {
                 .F, .W, .H => self.defaultAfter(before, before_char, after),
                 else => null,
             },
@@ -176,7 +173,7 @@ fn checkPair(
         .HL => switch (after) {
             .HY, .BA => self.setContext(.hl_hyba),
             .NU, .PR, .PO, .AL, .HL => null,
-            .OP => switch (ucd.trieValue(EastAsianWidth, after_char)) {
+            .OP => switch (ucd.EastAsianWidthProperty.get(after_char)) {
                 .F, .W, .H => self.defaultAfter(before, before_char, after),
                 else => null,
             },
@@ -189,7 +186,7 @@ fn checkPair(
         },
         .AL => switch (after) {
             .NU, .PR, .PO, .AL, .HL => null,
-            .OP => switch (ucd.trieValue(EastAsianWidth, after_char)) {
+            .OP => switch (ucd.EastAsianWidthProperty.get(after_char)) {
                 .F, .W, .H => self.defaultAfter(before, before_char, after),
                 else => null,
             },
@@ -197,7 +194,7 @@ fn checkPair(
         },
         .NU => switch (after) {
             .AL, .HL, .PO, .PR, .NU => null,
-            .OP => switch (ucd.trieValue(EastAsianWidth, after_char)) {
+            .OP => switch (ucd.EastAsianWidthProperty.get(after_char)) {
                 .F, .W, .H => self.defaultAfter(before, before_char, after),
                 else => null,
             },
@@ -211,8 +208,8 @@ fn checkPair(
         .ID => switch (after) {
             .PO => null,
             .EM => blk: {
-                break :blk switch (ucd.trieValue(GeneralCategory, before_char)) {
-                    .Any => null,
+                break :blk switch (ucd.GeneralCategory.get(before_char)) {
+                    .None => null,
                     else => self.defaultAfter(before, before_char, after),
                 };
             },
@@ -272,7 +269,7 @@ fn checkPair(
     };
 }
 
-fn setCmBase(self: *Self, before: LineBreakProperty.Value, before_char: u32) ?bool {
+fn setCmBase(self: *Self, before: ucd.LineBreakProperty, before_char: u32) ?bool {
     self.cm_base = .{
         .char = before_char,
         .prop = before,
@@ -302,7 +299,7 @@ fn numericAfter(self: *Self) bool {
     return false;
 }
 
-fn defaultAfter(self: *Self, before: LineBreakProperty.Value, before_char: u32, after: LineBreakProperty.Value) ?bool {
+fn defaultAfter(self: *Self, before: ucd.LineBreakProperty, before_char: u32, after: ucd.LineBreakProperty) ?bool {
     return switch (after) {
         .BK, .CR, .LF, .NL, .SP, .ZW, .WJ, .GL, .CL, .CP, .EX, .IS, .SY, .QU, .BA, .HY, .NS, .IN => null,
         .CM, .ZWJ => blk: {
@@ -321,10 +318,10 @@ fn setContext(self: *Self, context: Context) ?bool {
     return null;
 }
 
-fn prop(c: u32) LineBreakProperty.Value {
-    return switch (ucd.trieValue(LineBreakProperty, c)) {
-        .AI, .SG, .XX, .Any => .AL,
-        .SA => switch (ucd.trieValue(GeneralCategory, c)) {
+fn prop(c: u32) ucd.LineBreakProperty {
+    return switch (ucd.LineBreakProperty.get(c)) {
+        .AI, .SG, .XX, .None => .AL,
+        .SA => switch (ucd.GeneralCategory.get(c)) {
             .Mn, .Mc => .CM,
             else => .AL,
         },
@@ -333,6 +330,10 @@ fn prop(c: u32) LineBreakProperty.Value {
     };
 }
 
+const break_test = @import("break_test.zig");
+test {
+    try break_test.testBreakIterator("LineBreakTest.txt", TestIter.init);
+}
 const TestIter = struct {
     iter: Self,
 
@@ -349,6 +350,3 @@ const TestIter = struct {
             null;
     }
 };
-test {
-    try ucd.testBreakIterator("LineBreakTest.txt", TestIter.init);
-}

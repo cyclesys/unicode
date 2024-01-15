@@ -3,9 +3,7 @@ pub const LineBreak = @import("LineBreak.zig");
 pub const WordBreak = @import("WordBreak.zig");
 
 pub const bidi = @import("bidi.zig");
-pub const ucd = struct {
-    pub const trieValue = @import("ucd.zig").trieValue;
-};
+pub const ucd = @import("ucd.zig");
 
 test {
     _ = @import("bidi.zig");
