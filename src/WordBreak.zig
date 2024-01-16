@@ -1,34 +1,40 @@
 const std = @import("std");
 const ucd = @import("ucd.zig");
 
-chars: []const u32,
+str: []const u8,
 i: usize,
 ris_count: usize,
 
 const Self = @This();
 
-pub fn init(chars: []const u32) Self {
+pub fn init(str: []const u8) !Self {
+    if (!std.unicode.utf8ValidateSlice(str)) {
+        return error.InvalidUtf8;
+    }
+    return initAssumeValid(str);
+}
+
+pub fn initAssumeValid(str: []const u8) Self {
     return Self{
-        .chars = chars,
+        .str = str,
         .i = 0,
         .ris_count = 0,
     };
 }
 
 pub fn next(self: *Self) ?usize {
-    if (self.i >= self.chars.len) {
+    if (self.i >= self.str.len) {
         return null;
     }
 
     var state = WordState.init(self);
-    var i = self.i;
-    while (true) : (i += 1) {
-        if (i >= self.chars.len) {
+    var iter = std.unicode.Utf8Iterator{ .bytes = self.str, .i = self.i };
+    while (true) {
+        const code_point = if (iter.nextCodepointSlice()) |s| s else {
             return state.end();
-        }
-
-        const prop = ucd.WordBreakProperty.get(self.chars[i]);
-        return state.next(prop) orelse continue;
+        };
+        const prop = ucd.WordBreakProperty.getUtf8AssumeValid(code_point);
+        return state.next(code_point, prop) orelse continue;
     }
 }
 
@@ -67,9 +73,9 @@ const WordState = struct {
         };
     }
 
-    fn next(self: *WordState, prop: ucd.WordBreakProperty) ?usize {
+    fn next(self: *WordState, code_point: []const u8, prop: ucd.WordBreakProperty) ?usize {
         if (self.rule == null) {
-            self.iter.i += 1;
+            self.iter.i += code_point.len;
             self.rule = switch (prop) {
                 .CR => .CRLF,
                 .LF, .Newline => return self.finalize(),
@@ -94,28 +100,28 @@ const WordState = struct {
 
         return switch (self.rule.?) {
             .CRLF => switch (prop) {
-                .LF => self.finalizeAdvance(),
+                .LF => self.finalizeAdvance(code_point),
                 else => self.finalize(),
             },
             .Whitespace => switch (prop) {
-                .WSegSpace => self.advance(null),
-                else => self.advanceIfIgnoreAndSetIgnore(prop),
+                .WSegSpace => self.advance(code_point, null),
+                else => self.advanceIfIgnoreAndSetIgnore(code_point, prop),
             },
             .ZWJ => {
                 switch (prop) {
                     .Extended_Pictographic => {
                         self.zwj = null;
-                        return self.advance(.None);
+                        return self.advance(code_point, .None);
                     },
                     .ZWJ => {
                         if (self.zwj) |zwj| {
                             if (zwj.is_advance) {
-                                return self.advance(null);
+                                return self.advance(code_point, null);
                             } else {
-                                return self.peek(null);
+                                return self.peek(code_point, null);
                             }
                         }
-                        return self.advance(null);
+                        return self.advance(code_point, null);
                     },
                     .Extend, .Format => {
                         if (self.zwj) |zwj| {
@@ -123,79 +129,81 @@ const WordState = struct {
                             const is_advance = zwj.is_advance;
                             self.zwj = null;
                             if (is_advance) {
-                                return self.advance(null);
+                                return self.advance(code_point, null);
                             } else {
-                                return self.peek(null);
+                                return self.peek(code_point, null);
                             }
                         }
-                        return self.advance(.Ignore);
+                        return self.advance(code_point, .Ignore);
                     },
                     else => {
                         if (self.zwj) |zwj| {
                             self.rule = zwj.rule;
                             self.zwj = null;
-                            return self.next(prop);
+                            return self.next(code_point, prop);
                         }
                         return self.finalize();
                     },
                 }
             },
             .Ignore => switch (prop) {
-                .ZWJ => self.advance(null),
-                .Extend, .Format => self.advance(null),
+                .ZWJ => self.advance(code_point, null),
+                .Extend, .Format => self.advance(code_point, null),
                 else => self.finalize(),
             },
             .ALetter => switch (prop) {
-                .ALetter => self.advance(null),
-                .Hebrew_Letter => self.advance(.HebrewLetter),
-                .MidLetter, .MidNumLet, .Single_Quote => self.peek(.AHLetterMid),
-                .Numeric => self.advance(.Numeric),
-                .ExtendNumLet => self.advance(.ExtendNumLet),
-                else => self.advanceIfIgnore(prop),
+                .ALetter => self.advance(code_point, null),
+                .Hebrew_Letter => self.advance(code_point, .HebrewLetter),
+                .MidLetter, .MidNumLet, .Single_Quote => self.peek(code_point, .AHLetterMid),
+                .Numeric => self.advance(code_point, .Numeric),
+                .ExtendNumLet => self.advance(code_point, .ExtendNumLet),
+                else => self.advanceIfIgnore(code_point, prop),
             },
             .HebrewLetter => switch (prop) {
-                .ALetter => self.advance(.ALetter),
-                .Hebrew_Letter => self.advance(null),
-                .MidLetter, .MidNumLet => self.peek(.AHLetterMid),
-                .Single_Quote => self.finalizeAdvance(),
-                .Double_Quote => self.peek(.HebrewLetterDQ),
-                .Numeric => self.advance(.Numeric),
-                .ExtendNumLet => self.advance(.ExtendNumLet),
-                else => self.advanceIfIgnore(prop),
+                .ALetter => self.advance(code_point, .ALetter),
+                .Hebrew_Letter => self.advance(code_point, null),
+                .MidLetter, .MidNumLet => self.peek(code_point, .AHLetterMid),
+                .Single_Quote => self.finalizeAdvance(
+                    code_point,
+                ),
+                .Double_Quote => self.peek(code_point, .HebrewLetterDQ),
+                .Numeric => self.advance(code_point, .Numeric),
+                .ExtendNumLet => self.advance(code_point, .ExtendNumLet),
+                else => self.advanceIfIgnore(code_point, prop),
             },
             .AHLetterMid => switch (prop) {
-                .ALetter => self.advance(.ALetter),
-                .Hebrew_Letter => self.advance(.HebrewLetter),
-                else => self.peekIfIgnore(prop),
+                .ALetter => self.advance(code_point, .ALetter),
+                .Hebrew_Letter => self.advance(code_point, .HebrewLetter),
+                else => self.peekIfIgnore(code_point, prop),
             },
             .HebrewLetterDQ => switch (prop) {
-                .Hebrew_Letter => self.advance(.HebrewLetter),
-                else => self.advanceIfIgnore(prop),
+                .Hebrew_Letter => self.advance(code_point, .HebrewLetter),
+                else => self.advanceIfIgnore(code_point, prop),
             },
             .Numeric => switch (prop) {
-                .Numeric => self.advance(null),
-                .ALetter => self.advance(.ALetter),
-                .Hebrew_Letter => self.advance(.HebrewLetter),
-                .MidNum, .MidNumLet, .Single_Quote => self.peek(.NumericMid),
-                .ExtendNumLet => self.advance(.ExtendNumLet),
-                else => self.advanceIfIgnore(prop),
+                .Numeric => self.advance(code_point, null),
+                .ALetter => self.advance(code_point, .ALetter),
+                .Hebrew_Letter => self.advance(code_point, .HebrewLetter),
+                .MidNum, .MidNumLet, .Single_Quote => self.peek(code_point, .NumericMid),
+                .ExtendNumLet => self.advance(code_point, .ExtendNumLet),
+                else => self.advanceIfIgnore(code_point, prop),
             },
             .NumericMid => switch (prop) {
-                .Numeric => self.advance(.Numeric),
-                else => self.peekIfIgnore(prop),
+                .Numeric => self.advance(code_point, .Numeric),
+                else => self.peekIfIgnore(code_point, prop),
             },
             .Katakana => switch (prop) {
-                .Katakana => self.advance(null),
-                .ExtendNumLet => self.advance(.ExtendNumLet),
-                else => self.advanceIfIgnore(prop),
+                .Katakana => self.advance(code_point, null),
+                .ExtendNumLet => self.advance(code_point, .ExtendNumLet),
+                else => self.advanceIfIgnore(code_point, prop),
             },
             .ExtendNumLet => switch (prop) {
-                .ALetter => self.advance(.ALetter),
-                .Hebrew_Letter => self.advance(.HebrewLetter),
-                .Numeric => self.advance(.Numeric),
-                .Katakana => self.advance(.Katakana),
-                .ExtendNumLet => self.advance(null),
-                else => self.advanceIfIgnore(prop),
+                .ALetter => self.advance(code_point, .ALetter),
+                .Hebrew_Letter => self.advance(code_point, .HebrewLetter),
+                .Numeric => self.advance(code_point, .Numeric),
+                .Katakana => self.advance(code_point, .Katakana),
+                .ExtendNumLet => self.advance(code_point, null),
+                else => self.advanceIfIgnore(code_point, prop),
             },
             .RegionalIndicator => switch (prop) {
                 .Regional_Indicator => blk: {
@@ -203,11 +211,11 @@ const WordState = struct {
                         break :blk self.finalize();
                     }
                     self.iter.ris_count += 1;
-                    break :blk self.advance(null);
+                    break :blk self.advance(code_point, null);
                 },
-                else => self.advanceIfIgnore(prop),
+                else => self.advanceIfIgnore(code_point, prop),
             },
-            .None => self.advanceIfIgnore(prop),
+            .None => self.advanceIfIgnore(code_point, prop),
         };
     }
 
@@ -229,61 +237,61 @@ const WordState = struct {
         };
     }
 
-    inline fn advanceIfIgnore(self: *WordState, prop: ucd.WordBreakProperty) ?usize {
+    inline fn advanceIfIgnore(self: *WordState, code_point: []const u8, prop: ucd.WordBreakProperty) ?usize {
         return switch (prop) {
             .ZWJ => {
                 self.zwj = .{
                     .rule = self.rule.?,
                     .is_advance = true,
                 };
-                return self.advance(.ZWJ);
+                return self.advance(code_point, .ZWJ);
             },
-            .Extend, .Format => self.advance(null),
+            .Extend, .Format => self.advance(code_point, null),
             else => self.finalize(),
         };
     }
 
-    inline fn advanceIfIgnoreAndSetIgnore(self: *WordState, prop: ucd.WordBreakProperty) ?usize {
+    inline fn advanceIfIgnoreAndSetIgnore(self: *WordState, code_point: []const u8, prop: ucd.WordBreakProperty) ?usize {
         return switch (prop) {
-            .ZWJ => self.advance(.ZWJ),
-            .Extend, .Format => self.advance(.Ignore),
+            .ZWJ => self.advance(code_point, .ZWJ),
+            .Extend, .Format => self.advance(code_point, .Ignore),
             else => self.finalize(),
         };
     }
 
-    inline fn advance(self: *WordState, comptime rule: ?Rule) ?usize {
+    inline fn advance(self: *WordState, code_point: []const u8, comptime rule: ?Rule) ?usize {
         if (rule) |r| {
             self.rule = r;
         }
-        self.iter.i += 1 + self.peek_i;
+        self.iter.i += code_point.len + self.peek_i;
         self.peek_i = 0;
         return null;
     }
 
-    inline fn peekIfIgnore(self: *WordState, prop: ucd.WordBreakProperty) ?usize {
+    inline fn peekIfIgnore(self: *WordState, code_point: []const u8, prop: ucd.WordBreakProperty) ?usize {
         return switch (prop) {
             .ZWJ => {
                 self.zwj = .{
                     .rule = self.rule.?,
                     .is_advance = false,
                 };
-                return self.peek(.ZWJ);
+                return self.peek(code_point, .ZWJ);
             },
-            .Extend, .Format => self.peek(null),
+            .Extend, .Format => self.peek(code_point, null),
             else => self.finalize(),
         };
     }
 
-    inline fn peek(self: *WordState, comptime rule: ?Rule) ?usize {
+    inline fn peek(self: *WordState, code_point: []const u8, comptime rule: ?Rule) ?usize {
         if (rule) |r| {
             self.rule = r;
         }
-        self.peek_i += 1;
+        self.peek_i += code_point.len;
         return null;
     }
 
-    inline fn finalizeAdvance(self: *WordState) usize {
-        self.iter.i += 1;
+    inline fn finalizeAdvance(self: *WordState, code_point: []const u8) usize {
+        self.iter.i += code_point.len;
         return self.finalizePeek();
     }
 
@@ -293,11 +301,11 @@ const WordState = struct {
     }
 
     inline fn finalize(self: *WordState) usize {
-        return self.iter.i - 1;
+        return self.iter.i;
     }
 };
 
 const break_test = @import("break_test.zig");
 test {
-    try break_test.testBreakIterator("WordBreakTest.txt", init);
+    try break_test.testBreakIterator("WordBreakTest.txt", initAssumeValid);
 }

@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const GeneralCategory = enum {
     Cc,
     Zs,
@@ -809,10 +811,19 @@ pub const GeneralCategory = enum {
         29, 29, 29, 29, 29, 29, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 29, 29, 29, 29, 30,
     };
 
-    pub inline fn get(c: u32) GeneralCategory {
-        return trieGet(GeneralCategory, c);
+    pub inline fn getUtf8(c: []const u8) !GeneralCategory {
+        return trieGetUtf8(GeneralCategory, c);
+    }
+
+    pub inline fn getUtf8AssumeValid(c: []const u8) GeneralCategory {
+        return trieGetUtf8AssumeValid(GeneralCategory, c);
+    }
+
+    pub inline fn getUtf32(c: u32) GeneralCategory {
+        return trieGetUtf32(GeneralCategory, c);
     }
 };
+
 pub const BidiCategory = enum {
     BN,
     S,
@@ -1439,10 +1450,19 @@ pub const BidiCategory = enum {
         23, 23, 23, 23, 23, 23, 23, 23, 24,
     };
 
-    pub inline fn get(c: u32) BidiCategory {
-        return trieGet(BidiCategory, c);
+    pub inline fn getUtf8(c: []const u8) !BidiCategory {
+        return trieGetUtf8(BidiCategory, c);
+    }
+
+    pub inline fn getUtf8AssumeValid(c: []const u8) BidiCategory {
+        return trieGetUtf8AssumeValid(BidiCategory, c);
+    }
+
+    pub inline fn getUtf32(c: u32) BidiCategory {
+        return trieGetUtf32(BidiCategory, c);
     }
 };
+
 pub const BidiBracket = struct {
     pair: u32,
     dir: Dir,
@@ -2099,6 +2119,7 @@ pub const BidiBracket = struct {
         };
     }
 };
+
 pub const DerivedBidiProperty = enum {
     L,
     R,
@@ -2549,10 +2570,19 @@ pub const DerivedBidiProperty = enum {
         0, 0, 0, 0, 0, 12, 12, 23, 23, 23, 24,
     };
 
-    pub inline fn get(c: u32) DerivedBidiProperty {
-        return trieGet(DerivedBidiProperty, c);
+    pub inline fn getUtf8(c: []const u8) !DerivedBidiProperty {
+        return trieGetUtf8(DerivedBidiProperty, c);
+    }
+
+    pub inline fn getUtf8AssumeValid(c: []const u8) DerivedBidiProperty {
+        return trieGetUtf8AssumeValid(DerivedBidiProperty, c);
+    }
+
+    pub inline fn getUtf32(c: u32) DerivedBidiProperty {
+        return trieGetUtf32(DerivedBidiProperty, c);
     }
 };
+
 pub const GraphemeBreakProperty = enum {
     Extended_Pictographic,
     Prepend,
@@ -2932,10 +2962,19 @@ pub const GraphemeBreakProperty = enum {
         6, 14, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 14, 14, 14, 15,
     };
 
-    pub inline fn get(c: u32) GraphemeBreakProperty {
-        return trieGet(GraphemeBreakProperty, c);
+    pub inline fn getUtf8(c: []const u8) !GraphemeBreakProperty {
+        return trieGetUtf8(GraphemeBreakProperty, c);
+    }
+
+    pub inline fn getUtf8AssumeValid(c: []const u8) GraphemeBreakProperty {
+        return trieGetUtf8AssumeValid(GraphemeBreakProperty, c);
+    }
+
+    pub inline fn getUtf32(c: u32) GraphemeBreakProperty {
+        return trieGetUtf32(GraphemeBreakProperty, c);
     }
 };
+
 pub const WordBreakProperty = enum {
     Extended_Pictographic,
     Double_Quote,
@@ -3513,10 +3552,19 @@ pub const WordBreakProperty = enum {
         19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 20,
     };
 
-    pub inline fn get(c: u32) WordBreakProperty {
-        return trieGet(WordBreakProperty, c);
+    pub inline fn getUtf8(c: []const u8) !WordBreakProperty {
+        return trieGetUtf8(WordBreakProperty, c);
+    }
+
+    pub inline fn getUtf8AssumeValid(c: []const u8) WordBreakProperty {
+        return trieGetUtf8AssumeValid(WordBreakProperty, c);
+    }
+
+    pub inline fn getUtf32(c: u32) WordBreakProperty {
+        return trieGetUtf32(WordBreakProperty, c);
     }
 };
+
 pub const LineBreakProperty = enum {
     ID,
     PR,
@@ -4290,10 +4338,19 @@ pub const LineBreakProperty = enum {
         34, 34, 34, 34, 34, 34, 0, 0, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 43, 43, 43, 44,
     };
 
-    pub inline fn get(c: u32) LineBreakProperty {
-        return trieGet(LineBreakProperty, c);
+    pub inline fn getUtf8(c: []const u8) !LineBreakProperty {
+        return trieGetUtf8(LineBreakProperty, c);
+    }
+
+    pub inline fn getUtf8AssumeValid(c: []const u8) LineBreakProperty {
+        return trieGetUtf8AssumeValid(LineBreakProperty, c);
+    }
+
+    pub inline fn getUtf32(c: u32) LineBreakProperty {
+        return trieGetUtf32(LineBreakProperty, c);
     }
 };
+
 pub const EastAsianWidthProperty = enum {
     N,
     Na,
@@ -4822,10 +4879,19 @@ pub const EastAsianWidthProperty = enum {
         3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 6, 6, 6, 7,
     };
 
-    pub inline fn get(c: u32) EastAsianWidthProperty {
-        return trieGet(EastAsianWidthProperty, c);
+    pub inline fn getUtf8(c: []const u8) !EastAsianWidthProperty {
+        return trieGetUtf8(EastAsianWidthProperty, c);
+    }
+
+    pub inline fn getUtf8AssumeValid(c: []const u8) EastAsianWidthProperty {
+        return trieGetUtf8AssumeValid(EastAsianWidthProperty, c);
+    }
+
+    pub inline fn getUtf32(c: u32) EastAsianWidthProperty {
+        return trieGetUtf32(EastAsianWidthProperty, c);
     }
 };
+
 pub const ScriptProperty = enum {
     Common,
     Latin,
@@ -5725,11 +5791,30 @@ pub const ScriptProperty = enum {
         163, 163, 163, 163, 164,
     };
 
-    pub inline fn get(c: u32) ScriptProperty {
-        return trieGet(ScriptProperty, c);
+    pub inline fn getUtf8(c: []const u8) !ScriptProperty {
+        return trieGetUtf8(ScriptProperty, c);
+    }
+
+    pub inline fn getUtf8AssumeValid(c: []const u8) ScriptProperty {
+        return trieGetUtf8AssumeValid(ScriptProperty, c);
+    }
+
+    pub inline fn getUtf32(c: u32) ScriptProperty {
+        return trieGetUtf32(ScriptProperty, c);
     }
 };
-fn trieGet(comptime Trie: type, c: u32) Trie {
+
+fn trieGetUtf8(comptime Trie: type, cs: []const u8) !Trie {
+    const c = try std.unicode.utf8Decode(cs);
+    return trieGetUtf32(Trie, c);
+}
+
+fn trieGetUtf8AssumeValid(comptime Trie: type, cs: []const u8) Trie {
+    const c = std.unicode.utf8Decode(cs) catch unreachable;
+    return trieGetUtf32(Trie, c);
+}
+
+fn trieGetUtf32(comptime Trie: type, c: u32) Trie {
     const FAST_SHIFT = 6;
     const FAST_DATA_BLOCK_LEN = 1 << FAST_SHIFT;
     const FAST_DATA_MASK = FAST_DATA_BLOCK_LEN - 1;

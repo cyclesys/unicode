@@ -5,8 +5,8 @@ pub fn testBreakIterator(comptime name: []const u8, initFn: anytype) !void {
     const test_data = @embedFile("ucd_test/" ++ name);
     const allocator = std.testing.allocator;
 
-    var chars = std.ArrayList(u32).init(allocator);
-    defer chars.deinit();
+    var str = std.ArrayList(u8).init(allocator);
+    defer str.deinit();
 
     var breaks = std.ArrayList(u32).init(allocator);
     defer breaks.deinit();
@@ -37,7 +37,10 @@ pub fn testBreakIterator(comptime name: []const u8, initFn: anytype) !void {
                 ' ' => {
                     if (code_point_start) |start| {
                         const c = try std.fmt.parseInt(u21, line[start..unit_start], 16);
-                        try chars.append(c);
+
+                        var out: [4]u8 = undefined;
+                        const out_len = try std.unicode.utf8Encode(c, &out);
+                        try str.appendSlice(out[0..out_len]);
 
                         code_point = c;
                         code_point_start = null;
@@ -60,21 +63,22 @@ pub fn testBreakIterator(comptime name: []const u8, initFn: anytype) !void {
             }
         }
 
-        expectBreaks(chars.items, breaks.items, initFn) catch |e| {
+        expectBreaks(str.items, breaks.items, initFn) catch |e| {
             std.debug.print("Line: {}\n", .{line_num});
             return e;
         };
 
-        chars.clearRetainingCapacity();
+        str.clearRetainingCapacity();
         breaks.clearRetainingCapacity();
     }
 }
 
-fn expectBreaks(chars: []const u32, breaks: []const u32, initFn: anytype) !void {
-    var iter = initFn(chars);
+fn expectBreaks(str: []const u8, breaks: []const u32, initFn: anytype) !void {
+    var iter = initFn(str);
     for (breaks) |expected| {
         const index = if (iter.next()) |i| i else return error.ExpectedMoreBreaks;
-        const actual = chars[index];
+        var str_iter = ReverseUtf8Iterator.init(str[0..index]);
+        const actual = try std.unicode.utf8Decode(str_iter.next().?);
         std.testing.expectEqual(expected, actual) catch {
             return error.ExpectedBreakEqual;
         };

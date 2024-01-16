@@ -27,6 +27,12 @@ pub fn main() !void {
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
+    try buf.appendSlice(
+        \\const std = @import("std");
+        \\
+        \\
+    );
+
     {
         var bytes = try downloadFile(allocator, "UnicodeData.txt");
         defer allocator.free(bytes);
@@ -195,7 +201,17 @@ pub fn main() !void {
     try writePropertyTrie(allocator, &buf, "Scripts.txt", "ScriptProperty", null);
 
     try buf.appendSlice(
-        \\fn trieGet(comptime Trie: type, c: u32) Trie {
+        \\fn trieGetUtf8(comptime Trie: type, cs: []const u8) !Trie {
+        \\    const c = try std.unicode.utf8Decode(cs);
+        \\    return trieGetUtf32(Trie, c);
+        \\}
+        \\
+        \\fn trieGetUtf8AssumeValid(comptime Trie: type, cs: []const u8) Trie {
+        \\    const c = std.unicode.utf8Decode(cs) catch unreachable;
+        \\    return trieGetUtf32(Trie, c);
+        \\}
+        \\
+        \\fn trieGetUtf32(comptime Trie: type, c: u32) Trie {
         \\    const FAST_SHIFT = 6;
         \\    const FAST_DATA_BLOCK_LEN = 1 << FAST_SHIFT;
         \\    const FAST_DATA_MASK = FAST_DATA_BLOCK_LEN - 1;
@@ -317,6 +333,7 @@ fn writeBidiBrackets(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), data
         \\    }
         \\};
         \\
+        \\
     );
 }
 
@@ -395,12 +412,21 @@ fn writeTrie(buf: *std.ArrayList(u8), name: []const u8, trie: TrieBuilder.Trie, 
         \\
         \\    }};
         \\
-        \\    pub inline fn get(c: u32) {s} {{
-        \\        return trieGet({s}, c);
+        \\    pub inline fn getUtf8(c: []const u8) !{s} {{
+        \\        return trieGetUtf8({s}, c);
+        \\    }}
+        \\
+        \\    pub inline fn getUtf8AssumeValid(c: []const u8) {s} {{
+        \\        return trieGetUtf8AssumeValid({s}, c);
+        \\    }}
+        \\
+        \\    pub inline fn getUtf32(c: u32) {s} {{
+        \\        return trieGetUtf32({s}, c);
         \\    }}
         \\}};
         \\
-    , .{ name, name });
+        \\
+    , .{ name, name, name, name, name, name });
 }
 
 fn writeArrayElems(buf: *std.ArrayList(u8), indent: usize, comptime fmt: []const u8, elems: anytype) !void {
