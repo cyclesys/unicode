@@ -306,7 +306,17 @@ fn writeBidiBrackets(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), data
         \\        close,
         \\    };
         \\
-        \\    pub fn get(c: u32) ?BidiBracket {
+        \\    pub fn getUtf8(cs: []const u8) !?BidiBracket {
+        \\        const c = try std.unicode.utf8Decode(cs);
+        \\        return getUtf32(c);
+        \\    }
+        \\
+        \\    pub fn getUtf8AssumeValid(cs: []const u8) ?BidiBracket {
+        \\        const c = std.unicode.utf8Decode(cs) catch unreachable;
+        \\        return getUtf32(c);
+        \\    }
+        \\
+        \\    pub fn getUtf32(c: u32) ?BidiBracket {
         \\        return switch (c) {
         \\
     );

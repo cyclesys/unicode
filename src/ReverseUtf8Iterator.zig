@@ -28,7 +28,7 @@ pub fn next(self: *Self) ?[]const u8 {
         self.i -= 1;
     }
 
-    return self.bytes[self.i..(self.i + len)];
+    return self.bytes[self.i..][0..len];
 }
 
 inline fn isContByte(code_point: u8) bool {

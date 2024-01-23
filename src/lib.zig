@@ -6,7 +6,7 @@ pub const bidi = @import("bidi.zig");
 pub const ucd = @import("ucd.zig");
 
 test {
-    //_ = @import("bidi.zig");
+    _ = @import("bidi.zig");
     _ = @import("GraphemeBreak.zig");
     _ = @import("LineBreak.zig");
     _ = @import("ReverseUtf8Iterator.zig");
