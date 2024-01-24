@@ -39,9 +39,9 @@ pub fn parse(
         var items = std.mem.splitScalar(u8, line, ';');
         const code_point = try std.fmt.parseInt(u32, items.next().?, 16);
         const name = items.next().?;
-        var gen_cat = items.next().?;
+        const gen_cat = items.next().?;
         _ = items.next().?;
-        var bidi_cat = items.next().?;
+        const bidi_cat = items.next().?;
 
         if (std.mem.endsWith(u8, name, "First>")) {
             start = code_point;
@@ -75,7 +75,7 @@ pub fn parse(
 
 fn categoryKey(allocator: std.mem.Allocator, cats: *Categories, cat: []const u8) ![]const u8 {
     return cats.getKey(cat) orelse {
-        var key = try allocator.dupe(u8, cat);
+        const key = try allocator.dupe(u8, cat);
         try cats.put(key, undefined);
         return key;
     };

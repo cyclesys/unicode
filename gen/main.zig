@@ -34,7 +34,7 @@ pub fn main() !void {
     );
 
     {
-        var bytes = try downloadFile(allocator, "UnicodeData.txt");
+        const bytes = try downloadFile(allocator, "UnicodeData.txt");
         defer allocator.free(bytes);
 
         var data = try UnicodeData.parse(allocator, bytes);
@@ -486,7 +486,7 @@ fn copyFile(allocator: std.mem.Allocator, comptime ucd_path: []const u8, comptim
 
 fn downloadFile(allocator: std.mem.Allocator, comptime ucd_path: []const u8) ![]const u8 {
     const url = "https://www.unicode.org/Public/" ++ version ++ "/ucd/" ++ ucd_path;
-    const result = try std.ChildProcess.exec(.{
+    const result = try std.ChildProcess.run(.{
         .allocator = allocator,
         .argv = &.{ "curl", url },
         .max_output_bytes = 10 * 1024 * 1024,

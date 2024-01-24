@@ -76,7 +76,7 @@ fn ensureCapacity(self: *Self, slice: []u32, capacity: usize) ![]u32 {
 
 pub fn setRange(self: *Self, s: u32, e: u32, value: u32) !void {
     var start: u32 = s;
-    var end: u32 = e;
+    const end: u32 = e;
     if (start > MAX_UNICODE or end > MAX_UNICODE or start > end) {
         return error.InvalidRange;
     }
@@ -161,7 +161,7 @@ fn getDataBlock(self: *Self, i: u32) !usize {
         return self.index[i];
     }
 
-    var block_start = try self.allocDataBlock(SMALL_DATA_BLOCK_LEN);
+    const block_start = try self.allocDataBlock(SMALL_DATA_BLOCK_LEN);
     @memset(self.data[block_start..][0..SMALL_DATA_BLOCK_LEN], self.index[i]);
     self.flags[i] = MIXED;
     self.index[i] = block_start;
@@ -549,7 +549,7 @@ fn findAllSameBlock(p: []const u32, start: u32, limit: u32, value: u32, block_le
 }
 
 fn getAllSameOverlap(p: []const u32, len: u32, value: u32, block_len: u32) u32 {
-    var min = len - block_len - 1;
+    const min = len - block_len - 1;
     var i = len;
     while (min < i and p[i - 1] == value) {
         i -= 1;
@@ -663,7 +663,7 @@ fn compactIndex(self: *Self, mixed_blocks: *MixedBlocks) !u32 {
     var index2: [UNICODE_LIMIT >> SHIFT_2]u16 = undefined;
     var idx2_len: u32 = 0;
     idx3_first_null = self.index3_null_offset;
-    var idx3_start = fast_index_len + idx1_len;
+    const idx3_start = fast_index_len + idx1_len;
     var index_len = idx3_start;
 
     i = BMP_I_LIMIT;

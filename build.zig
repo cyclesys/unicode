@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib_module = b.addModule("unicode", .{ .source_file = .{ .path = "src/lib.zig" } });
+    const lib_module = b.addModule("unicode", .{ .root_source_file = .{ .path = "src/lib.zig" } });
     _ = lib_module;
 
     const lib_tests = b.addTest(.{
